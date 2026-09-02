@@ -19,6 +19,19 @@ const API_BASE_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:5000'
   : 'https://health-center-backend-ksbv.onrender.com';
 
+// Safe wrapper for jspdf-autotable compatible with all Vite/Webpack builds
+const applyAutoTable = (doc, options) => {
+  if (typeof doc.autoTable === 'function') {
+    doc.autoTable(options);
+  } else if (typeof autoTable === 'function') {
+    autoTable(doc, options);
+  } else if (autoTable && typeof autoTable.default === 'function') {
+    autoTable.default(doc, options);
+  } else {
+    throw new Error('autoTable plugin could not be initialized');
+  }
+};
+
 export default function AdminDashboard() {
   // Authentication States
   const [isLoggedIn, setIsLoggedIn] = useState(() => {
@@ -140,47 +153,52 @@ export default function AdminDashboard() {
 
   // --- EXPORT PDF REPORT ---
   const downloadPDF = () => {
-    const doc = new jsPDF();
-    
-    // Document Title Header
-    doc.setFontSize(18);
-    doc.setTextColor(30, 58, 138); 
-    doc.text('Central University of Rajasthan', 14, 20);
-    
-    doc.setFontSize(12);
-    doc.setTextColor(75, 85, 99);
-    doc.text('Health Center — Medical Consultations Report', 14, 28);
-    
-    // Meta Information
-    doc.setFontSize(9);
-    doc.setTextColor(107, 114, 128);
-    const filterInfo = selectedDoctor ? `Filtered by Doctor ID: ${selectedDoctor}` : 'All Doctors';
-    doc.text(`Generated on: ${new Date().toLocaleString()} | Scope: ${filterInfo}`, 14, 35);
+    try {
+      const doc = new jsPDF();
+      
+      // Document Title Header
+      doc.setFontSize(18);
+      doc.setTextColor(30, 58, 138); 
+      doc.text('Central University of Rajasthan', 14, 20);
+      
+      doc.setFontSize(12);
+      doc.setTextColor(75, 85, 99);
+      doc.text('Health Center — Medical Consultations Report', 14, 28);
+      
+      // Meta Information
+      doc.setFontSize(9);
+      doc.setTextColor(107, 114, 128);
+      const filterInfo = selectedDoctor ? `Filtered by Doctor ID: ${selectedDoctor}` : 'All Doctors';
+      doc.text(`Generated on: ${new Date().toLocaleString()} | Scope: ${filterInfo}`, 14, 35);
 
-    // Table Data Structure
-    const tableColumn = ["Date", "Patient ID", "Category", "Doctor", "Symptoms", "Treatment", "Prescription"];
-    const tableRows = filteredData.map(c => [
-      new Date(c.consultation_date).toLocaleDateString(),
-      c.patient_id || 'N/A',
-      c.is_student ? 'Student' : 'Staff/Other',
-      c.doctor_name ? `Dr. ${c.doctor_name}` : 'Unassigned',
-      c.symptoms || '—',
-      c.treatment || '—',
-      c.prescription || '—'
-    ]);
+      // Table Data Structure
+      const tableColumn = ["Date", "Patient ID", "Category", "Doctor", "Symptoms", "Treatment", "Prescription"];
+      const tableRows = (filteredData || []).map(c => [
+        c.consultation_date ? new Date(c.consultation_date).toLocaleDateString() : '—',
+        c.patient_id || 'N/A',
+        c.is_student ? 'Student' : 'Staff/Other',
+        c.doctor_name ? `Dr. ${c.doctor_name}` : 'Unassigned',
+        c.symptoms || '—',
+        c.treatment || '—',
+        c.prescription || '—'
+      ]);
 
-    autoTable(doc, {
-      head: [tableColumn],
-      body: tableRows,
-      startY: 42,
-      theme: 'grid',
-      styles: { fontSize: 8, cellPadding: 2.5, overflow: 'linebreak' },
-      headStyles: { fillColor: [30, 58, 138], textColor: 255, fontStyle: 'bold' },
-      alternateRowStyles: { fillColor: [248, 250, 252] }
-    });
+      applyAutoTable(doc, {
+        head: [tableColumn],
+        body: tableRows,
+        startY: 42,
+        theme: 'grid',
+        styles: { fontSize: 8, cellPadding: 2.5, overflow: 'linebreak' },
+        headStyles: { fillColor: [30, 58, 138], textColor: 255, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 250, 252] }
+      });
 
-    const fileDate = new Date().toISOString().split('T')[0];
-    doc.save(`CURAJ_Health_Records_${fileDate}.pdf`);
+      const fileDate = new Date().toISOString().split('T')[0];
+      doc.save(`CURAJ_Health_Records_${fileDate}.pdf`);
+    } catch (err) {
+      console.error('Report Generation Error:', err);
+      alert('Failed to generate PDF report. Check browser console for details.');
+    }
   };
 
   // ==========================================

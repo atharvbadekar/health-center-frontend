@@ -21,6 +21,19 @@ const API_BASE_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:5000'
   : 'https://health-center-backend-ksbv.onrender.com';
 
+// Safe wrapper for jspdf-autotable compatible with all Vite/Webpack builds
+const applyAutoTable = (doc, options) => {
+  if (typeof doc.autoTable === 'function') {
+    doc.autoTable(options);
+  } else if (typeof autoTable === 'function') {
+    autoTable(doc, options);
+  } else if (autoTable && typeof autoTable.default === 'function') {
+    autoTable.default(doc, options);
+  } else {
+    throw new Error('autoTable plugin could not be initialized');
+  }
+};
+
 export default function DoctorPortal() {
   const [isStudent, setIsStudent] = useState(true);
   const [identifier, setIdentifier] = useState('');
@@ -71,80 +84,89 @@ export default function DoctorPortal() {
   // ==========================================================================
 
   const exportPrescriptionPDF = () => {
-    if (!savedConsultationData) return;
+    try {
+      const doc = new jsPDF();
+      
+      const patient = savedConsultationData?.patient || patientDetails;
+      const form = savedConsultationData?.form || formData;
+      const doctor = savedConsultationData?.doctor || doctors.find((d) => String(d.id) === String(selectedDoctor));
+      const consultDateObj = savedConsultationData?.date ? new Date(savedConsultationData.date) : new Date();
 
-    const doc = new jsPDF();
-    const { patient, form, doctor, date } = savedConsultationData;
+      // Header Banner
+      doc.setFillColor(30, 58, 138); // CURAJ Royal Blue
+      doc.rect(0, 0, 210, 36, 'F');
 
-    // Header Banner
-    doc.setFillColor(30, 58, 138); // CURAJ Royal Blue
-    doc.rect(0, 0, 210, 36, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(15);
+      doc.setFont('helvetica', 'bold');
+      doc.text('CENTRAL UNIVERSITY OF RAJASTHAN', 105, 14, { align: 'center' });
 
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(15);
-    doc.setFont('helvetica', 'bold');
-    doc.text('CENTRAL UNIVERSITY OF RAJASTHAN', 105, 14, { align: 'center' });
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text('University Health Centre — Medical Prescription & Consultation', 105, 22, { align: 'center' });
 
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    doc.text('University Health Centre — Medical Prescription & Consultation', 105, 22, { align: 'center' });
+      doc.setFontSize(8);
+      doc.text('NH-8, Bandar Seendri, Ajmer, Rajasthan 305817', 105, 29, { align: 'center' });
 
-    doc.setFontSize(8);
-    doc.text('NH-8, Bandar Seendri, Ajmer, Rajasthan 305817', 105, 29, { align: 'center' });
+      // Patient & Consultation Meta Info Table
+      const formattedDate = consultDateObj.toLocaleString('en-IN', {
+        dateStyle: 'medium',
+        timeStyle: 'short'
+      });
 
-    // Patient & Consultation Meta Info Table
-    const formattedDate = new Date(date).toLocaleString('en-IN', {
-      dateStyle: 'medium',
-      timeStyle: 'short'
-    });
+      const patientName = patient?.full_name || (isStudent ? 'Student' : 'Staff / Other Patient');
+      const patientId = patient?.college_id || identifier || 'N/A';
+      const hostel = patient?.hostel_name || 'N/A';
+      const phone = patient?.mobile_number ? `+91 ${patient.mobile_number}` : 'N/A';
 
-    const patientName = patient?.full_name || (isStudent ? 'Student' : 'Staff / Other Patient');
-    const patientId = patient?.college_id || identifier || 'N/A';
-    const hostel = patient?.hostel_name || 'N/A';
-    const phone = patient?.mobile_number ? `+91 ${patient.mobile_number}` : 'N/A';
+      applyAutoTable(doc, {
+        startY: 42,
+        theme: 'plain',
+        styles: { fontSize: 9, cellPadding: 2, textColor: [51, 65, 85] },
+        columnStyles: {
+          0: { fontStyle: 'bold', width: 35 },
+          1: { width: 65 },
+          2: { fontStyle: 'bold', width: 35 },
+          3: { width: 65 }
+        },
+        body: [
+          ['Patient Name:', patientName, 'Consultation Date:', formattedDate],
+          ['Enrollment / ID:', patientId, 'Attending Doctor:', doctor?.name ? `Dr. ${doctor.name}` : 'Medical Officer'],
+          ['Hostel / Room:', hostel, 'Contact Phone:', phone]
+        ]
+      });
 
-    autoTable(doc, {
-      startY: 42,
-      theme: 'plain',
-      styles: { fontSize: 9, cellPadding: 2, textColor: [51, 65, 85] },
-      columnStyles: {
-        0: { fontStyle: 'bold', width: 35 },
-        1: { width: 65 },
-        2: { fontStyle: 'bold', width: 35 },
-        3: { width: 65 }
-      },
-      body: [
-        ['Patient Name:', patientName, 'Consultation Date:', formattedDate],
-        ['Enrollment / ID:', patientId, 'Attending Doctor:', doctor?.name ? `Dr. ${doctor.name}` : 'Medical Officer'],
-        ['Hostel / Room:', hostel, 'Contact Phone:', phone]
-      ]
-    });
+      const endFirstTable = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? doc.lastAutoTable.finalY : 65;
 
-    // Clinical Summary Table
-    autoTable(doc, {
-      startY: doc.lastAutoTable.finalY + 5,
-      theme: 'grid',
-      headStyles: { fillColor: [30, 58, 138], textColor: 255, fontStyle: 'bold' },
-      styles: { fontSize: 9.5, cellPadding: 4, textColor: [30, 41, 59] },
-      head: [['Clinical Category', 'Observations & Recommendations']],
-      body: [
-        ['Symptoms', form.symptoms || '—'],
-        ['Diagnosis / Advice', form.treatment || '—'],
-        ['Prescription (Rx)', form.prescription || '—'],
-        ['Special Notes', form.notes || '—']
-      ]
-    });
+      // Clinical Summary Table
+      applyAutoTable(doc, {
+        startY: endFirstTable + 5,
+        theme: 'grid',
+        headStyles: { fillColor: [30, 58, 138], textColor: 255, fontStyle: 'bold' },
+        styles: { fontSize: 9.5, cellPadding: 4, textColor: [30, 41, 59] },
+        head: [['Clinical Category', 'Observations & Recommendations']],
+        body: [
+          ['Symptoms', form.symptoms || '—'],
+          ['Diagnosis / Advice', form.treatment || '—'],
+          ['Prescription (Rx)', form.prescription || '—'],
+          ['Special Notes', form.notes || '—']
+        ]
+      });
 
-    // Disclaimer & Footer
-    const pageHeight = doc.internal.pageSize.height;
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'italic');
-    doc.setTextColor(100, 116, 139);
-    doc.text('This is a computer-generated medical consultation summary from CURAJ Health Centre.', 105, pageHeight - 15, { align: 'center' });
-    doc.text('Please consult the University Health Centre OPD if symptoms persist.', 105, pageHeight - 10, { align: 'center' });
+      // Disclaimer & Footer
+      const pageHeight = doc.internal.pageSize.height;
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'italic');
+      doc.setTextColor(100, 116, 139);
+      doc.text('This is a computer-generated medical consultation summary from CURAJ Health Centre.', 105, pageHeight - 15, { align: 'center' });
+      doc.text('Please consult the University Health Centre OPD if symptoms persist.', 105, pageHeight - 10, { align: 'center' });
 
-    // Download PDF
-    doc.save(`CURAJ_Prescription_${patientId}_${Date.now()}.pdf`);
+      // Download PDF
+      doc.save(`CURAJ_Prescription_${patientId}_${Date.now()}.pdf`);
+    } catch (err) {
+      console.error('PDF Generation Error:', err);
+      alert('Could not generate PDF prescription. Please ensure popups and downloads are allowed.');
+    }
   };
 
   // ==========================================================================
